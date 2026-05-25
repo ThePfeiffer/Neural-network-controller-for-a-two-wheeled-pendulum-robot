@@ -1,0 +1,236 @@
+/***************************************************************************
+ *   Copyright (C) 2014-2024 by DTU
+ *   jca@elektro.dtu.dk            
+ * 
+ * 
+ * The MIT License (MIT)  https://mit-license.org/
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+ * and associated documentation files (the “Software”), to deal in the Software without restriction, 
+ * including without limitation the rights to use, copy, modify, merge, publish, distribute, 
+ * sublicense, and/or sell copies of the Software, and to permit persons to whom the Software 
+ * is furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all copies 
+ * or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+ * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR 
+ * PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE 
+ * FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, 
+ * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN 
+ * THE SOFTWARE. */
+
+
+#include "main.h"
+#include "ubluetooth.h"
+#include "ueeconfig.h"
+#include "urobot.h"
+
+/// Sharp IR distance sensor interface object.
+UBluetooth bt;
+
+void UBluetooth::setup()
+{
+  addPublistItem("bt4", "Get current Bluetooth status");
+  usb.addSubscriptionService(this);
+  versioncpp = "$Id$";
+}
+
+
+void UBluetooth::tick()
+{
+  tickCnt++;
+  if (useBluetooth > 0)
+  { // useDisplay is off during missions,
+    if (not brxDecodeUsed)
+    {
+      if ((brxDecode[0] == 'O' and brxDecode[1] == 'K') or
+          (brxDecode[0] == 'E' and brxDecode[1] == 'R'))
+      {
+        const int MSL = 200;
+        char s[MSL];
+        snprintf(s, MSL, "# got: '%s'\n", brxDecode);
+        usb.send(s);
+      }
+      else
+        usb.decodeAll(brxDecode);
+      brxDecodeUsed = true;
+    }
+  }
+}
+
+
+void UBluetooth::tickRx()
+{
+  if (useBluetooth > 0)
+  { // useDisplay is off during missions,
+    if (brxIdx > 0 and fabsl(tickCnt - rxTickCnt) > 20)
+    {
+      brx[brxIdx++] = '\n';
+      brx[brxIdx] = '\0';
+      strncpy(brxDecode, brx, MBRX);
+      brxDecodeUsed = false;
+      brxIdx = 0;
+      inCnt++;
+      usb.send("# UBluetooth::tickRx: full line timeout\n");
+    }
+    if (Serial8.available())
+    {
+      rxTickCnt = tickCnt;
+      char v = Serial8.read();
+      if (v == '\n')
+      { // end of command
+        brx[brxIdx++] = v;
+        brx[brxIdx] = '\0';
+        strncpy(brxDecode, brx, MBRX);
+        brxDecodeUsed = false;
+        brxIdx = 0;
+        inCnt++;
+        // usb.send("# UBluetooth::tickRx: full line\n");
+      }
+      else if (v >= ' ' and v < 128)
+      { // valid character (7-bit ASCII)
+        brx[brxIdx++] = v;
+        if (brxIdx >= MBRX - 1)
+        {
+          brxIdx = 0;
+          usb.send("# UBluetooth::tickRx: overflow\n");
+        }
+        // usb.send("# UBluetooth::tickRx: got ASCII-7 byte\n");
+      }
+      // else
+      //   usb.send("# UBluetooth::tickRx: got ctrl char (ignored)\n");
+    }
+  }
+}
+
+void UBluetooth::setBaud(uint32_t baud)
+{
+  //pinMode(PIN_SERIAL8_TX, OUTPUT);
+  Serial8.begin(baud);
+  baudrate = baud;
+  if (useBluetooth == 1)
+  {  // wake up - assuming BT-LE is asleep
+    char d[100]{'a'};
+    d[99] = '\0';
+    Serial8.print(d);
+    //
+    // debug print
+    usb.send("# UBluetooth::setBaud and 99 x 'a' to wakeup BLE\n");
+  }
+}
+
+void UBluetooth::send(const char* msg, int from)
+{
+  if (useBluetooth > 0 and msg[0] != '#' and from > 0)
+  {
+    Serial8.println(msg);
+    outCnt++;
+  }
+  else if (from > 0)
+  {
+    usb.send("# UBluetooth::send: no send\n");
+  }
+}
+
+
+bool UBluetooth::decode(const char* buf)
+{
+  bool used = true;
+  if (strncmp(buf, "bt4use ", 7) == 0)
+  {
+    // const int MSL = 100;
+    // char s[MSL];
+    const char * p1 = &buf[7];
+    int v = strtol(p1, nullptr, 10);
+    useBluetooth = v;
+    if (useBluetooth > 0)
+      // start with default baud rate
+      setBaud(baudrate);
+    if (v == 1)
+      usb.send("# UBluetooth::decode: 1= use BT4 MC-10\n");
+    else if (v == 2)
+      usb.send("# UBluetooth::decode: 2= use BT5 HC-42\n");
+    else
+      usb.send("# UBluetooth::decode: 0= no Bluetooth\n");
+  }
+  else if (strncmp(buf, "bt4tx ", 6) == 0)
+  {
+    const char * p1 = &buf[6];
+    const int MSL = 100;
+    char s[MSL];
+    snprintf(s, MSL, "# UBluetooth::decode: tx: '%s'\n", p1);
+    usb.send(s);
+    send(p1, 1);
+  }
+  else if (strncmp(buf, "bt4br ", 6) == 0)
+  {
+    // const int MSL = 100;
+    // char s[MSL];
+    const char * p1 = &buf[6];
+    uint32_t v = strtol(p1, nullptr, 10);
+    if (v > 0)
+      setBaud(v);
+    usb.send("# UBluetooth::decode: set Baudrate\n");
+  }
+  else
+    used = false;
+  return used;
+}
+
+void UBluetooth::sendData(int item)
+{
+  if (item == 0)
+    sendStatus();
+}
+
+
+void UBluetooth::sendHelp()
+{
+  const int MSL = 120;
+  char s[MSL];
+  usb.send("# BlueTooth 4 BLE or 5.0 -------(require optional CC2541MH-10 or HC-42) Not functional\r\n");
+  snprintf(s, MSL, "# -- \tbt4use V \tV==0 disabled; V=1:MH-10; V=2=HC-42 (is %d)\r\n", useBluetooth);
+  usb.send(s);
+  snprintf(s, MSL, "# -- \tbt4tx S  \tSent S (text)\r\n");
+  usb.send(s);
+  snprintf(s, MSL, "# -- \tbt4br S  \tSet Serial8 baudrate\r\n");
+  usb.send(s);
+}
+
+void UBluetooth::sendStatus()
+{
+  const int MSL = 150;
+  char s[MSL];
+  snprintf(s, MSL, "bt4 %d %d %d %ld %s\r\n", useBluetooth, outCnt, inCnt, baudrate, brxDecode);
+  usb.send(s);
+}
+
+/////////////////////////////////////
+
+void UBluetooth::eePromSave()
+{
+  uint8_t v = useBluetooth;
+  eeConfig.pushByte(v);
+  eeConfig.push32(baudrate);
+}
+
+/////////////////////////////////////
+
+void UBluetooth::eePromLoad()
+{
+  if (not eeConfig.isStringConfig())
+  {
+    useBluetooth = eeConfig.readByte();
+    uint32_t br = eeConfig.read32();
+    if (useBluetooth > 0)
+      setBaud(br);
+    else
+      useBluetooth = 0;
+  }
+  else
+    // display is robot specific
+    eeConfig.skipAddr(1);
+}
+

@@ -1,0 +1,131 @@
+/***************************************************************************
+ *   Copyright (C) 2014-2022 by DTU
+ *   jcan@dtu.dk            
+ * 
+ * 
+ * The MIT License (MIT)  https://mit-license.org/
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+ * and associated documentation files (the “Software”), to deal in the Software without restriction, 
+ * including without limitation the rights to use, copy, modify, merge, publish, distribute, 
+ * sublicense, and/or sell copies of the Software, and to permit persons to whom the Software 
+ * is furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all copies 
+ * or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, 
+ * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR 
+ * PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE 
+ * FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, 
+ * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN 
+ * THE SOFTWARE. */
+
+#ifndef UMOTOR_H
+#define UMOTOR_H
+
+#include <stdint.h>
+#include "main.h"
+#include "usubss.h"
+
+class UMotor : public USubss
+{
+public:
+  // motor voltage
+  float motorVoltage[2];
+  bool motorEnable[2] = {false};
+  /** PWM frequency (400 Hz is probably maximum) */
+  int PWMfrq = 68000; // default and must be < 20k for big Pololu controllers
+  /**
+   * if motor gets full power in more than 1 second, then stop */
+  int overloadCount;
+  bool motorPreEnabled;
+  bool motorPreEnabledRestart;
+  //
+  bool m1ok = true;
+  bool m2ok = true;
+  // motor reversed
+  // Pololu motors not, but big ones from China is opposite (reversed)
+  bool motorReversed = false;
+  /** set motor voltage to 0 if ref is zero and velocity is low.
+   * This is to avoid rattling due to noise and encoder delay.
+   * NB! this is not a good idea, when inverted pendulum mode */
+  bool allowRelax = false;
+  bool relax = false; // relax active
+  bool externalDriver = false;
+  /**
+  * set PWM port of frekvens */
+  void setup();
+  /**
+   * send command help */
+  void sendHelp();
+  /**
+   * decode commands */
+  bool decode(const char * buf) override;
+  /**
+   * implement motor voltage (escValue) as PWM signal */
+//   void implementMotorVoltage();
+  /**
+   * set one esc or pin (mostly for debug) */
+  void setPWMfrq(const char * line);
+  void setPWMfrq(int frq);
+  /**
+   * 2.5ms update of esc */
+  void tick();
+  /**
+   * save configuration to (EE)disk */
+  void eePromSave();
+  /**
+   * load configuration from EE-prom */
+  void eePromLoad();
+  /**
+   * emergency stop */
+  void stopAllMotors();
+  /**
+   * send current motor values (voltage and reference settings)
+   * */
+  void sendMotorValues();
+  /**
+   * Send motor direction and PWM (MPW in range [-4096 .. 4096]) */
+  void sendMotorPWM();
+  /**
+   * e2 used on HW < 3 only */
+  void motorSetEnable(uint8_t e1, uint8_t e2);
+  
+  const char * versionh = "$Id: umotor.h 1767 2026-04-18 19:53:36Z jcan $";
+  const char * versioncpp = nullptr;
+
+protected:
+  
+  void sendData(int item) override;
+  
+  void motorSetPWM(int m1PWM, int m2PWM);
+  
+  void motorSetAnchorVoltage();
+
+  void setExternalDriverPWM(int pin_PWM, int pin_in1, int pin_in2, int pwm, bool * sleeping);
+  
+private:
+  //
+  int16_t motorAnkerPWM[2];
+  int16_t motorAnkerDir[2];
+  bool motorSleeping[2];
+  // bool motorExternalRelax = false;
+  uint32_t motorAwakeTime[2];
+  int pinMotor2Dir;
+  int pinMotor2Pwm;
+  // subscribe
+//   static const int SUBS_CNT = 1;
+//   USubs * subs[SUBS_CNT];
+//   int subMotN = 0;
+//   int subMotCnt = 0;
+//   bool aaa = false;
+  int tickCnt = 0;
+  int setupCnt = 0;
+  float MAX_PWM = 4096;
+  int pwmDeadband[2] = {0};
+};
+
+extern UMotor motor;
+
+#endif // UMOTOR_H
