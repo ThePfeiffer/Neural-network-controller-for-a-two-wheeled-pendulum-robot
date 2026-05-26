@@ -174,7 +174,8 @@ save(filename, 'trainIn', 'trainOut', 'trainTime');
 
 %% train NN - DL net - parallel
 
-load('training_data_2026_05_09-12_01_n1000.mat')
+%load('training_data_2026_05_09-12_01_n1000.mat') - training data file too
+%large for GitHub upload
 nIn = 8;
 nOut = 2;
 
